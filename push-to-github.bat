@@ -22,12 +22,12 @@ echo Adding remote repository...
 git remote add origin https://github.com/Avik-Studio/NeoRide-Official.git
 
 echo.
-echo Pushing to NeoRide-Backend-Official branch...
-git push -u origin NeoRide-Backend-Official
+echo Pushing to main branch...
+git push -u origin main
 
 echo.
 echo If you see any errors, you might need to pull first:
-echo git pull origin NeoRide-Backend-Official --allow-unrelated-histories
+echo git pull origin main --allow-unrelated-histories
 echo.
 
 echo Done!

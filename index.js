@@ -23,14 +23,39 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/NeoRid
 // (Optional but recommended) Disable command buffering to catch issues early
 mongoose.set('bufferCommands', false);
 
-// MongoDB Connection
-mongoose.connect(MONGODB_URI)
-  .then(() => {
+// MongoDB Connection with improved error handling for Vercel
+let cachedDb = null;
+
+async function connectToDatabase() {
+  if (cachedDb) {
+    console.log('Using cached database connection');
+    return cachedDb;
+  }
+
+  console.log('Connecting to MongoDB...');
+  console.log('MongoDB URI:', MONGODB_URI ? 'URI is set' : 'URI is not set');
+  
+  // Set mongoose options for better reliability
+  const options = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  };
+
+  try {
+    const client = await mongoose.connect(MONGODB_URI, options);
+    cachedDb = client;
     console.log('✅ Connected to MongoDB');
-  })
-  .catch((error) => {
+    return client;
+  } catch (error) {
     console.error('❌ MongoDB connection error:', error);
-  });
+    throw error;
+  }
+}
+
+// Connect to MongoDB at startup
+connectToDatabase().catch(console.error);
 
 // Mongoose error listener
 mongoose.connection.on('error', (err) => {
@@ -143,18 +168,57 @@ const Driver = mongoose.model('Driver', driverSchema);
 
 // ========== Routes ==========
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    connected: mongoose.connection.readyState === 1,
-    message: 'MongoDB API is running',
-    timestamp: new Date().toISOString()
+// Health check endpoint with detailed MongoDB connection status
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    await mongoose.connection.db.admin().ping();
+    res.status(200).json({ 
+      status: 'success',
+      message: 'API is running',
+      connected: true,
+      mongoState: mongoose.connection.readyState,
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date()
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Database connection failed',
+      connected: false,
+      mongoState: mongoose.connection.readyState,
+      error: error.message,
+      timestamp: new Date()
+    });
+  }
+});
+
+// Debug endpoint to check environment variables (remove in production)
+app.get('/api/debug', (req, res) => {
+  res.status(200).json({
+    nodeEnv: process.env.NODE_ENV,
+    mongodbUri: process.env.MONGODB_URI ? 'Set (value hidden)' : 'Not set',
+    port: process.env.PORT || 3001,
+    vercel: process.env.VERCEL === '1' ? 'Running on Vercel' : 'Not on Vercel'
   });
 });
 
 // Create Customer
 app.post('/api/customers', async (req, res) => {
   try {
+    console.log('📥 Received customer creation request:', JSON.stringify(req.body));
+    
+    // Validate required fields
+    if (!req.body.supabaseId || !req.body.email || !req.body.fullName) {
+      console.error('❌ Missing required fields for customer creation');
+      return res.status(400).json({ 
+        error: 'Missing required fields', 
+        required: ['supabaseId', 'email', 'fullName'],
+        received: Object.keys(req.body)
+      });
+    }
+    
     const customerData = {
       ...req.body,
       email: req.body.email.toLowerCase(),
@@ -168,13 +232,42 @@ app.post('/api/customers', async (req, res) => {
       averageRating: 0
     };
 
+    console.log('🔄 Processing customer data with supabaseId:', customerData.supabaseId);
+    
     const customer = new Customer(customerData);
     const savedCustomer = await customer.save();
 
-    console.log('✅ Customer created:', savedCustomer._id);
+    console.log('✅ Customer created successfully:', {
+      id: savedCustomer._id,
+      supabaseId: savedCustomer.supabaseId,
+      email: savedCustomer.email
+    });
+    
     res.status(201).json(savedCustomer);
   } catch (error) {
     console.error('❌ Error creating customer:', error);
+    
+    // Check for duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({ 
+        error: 'Customer already exists', 
+        field: Object.keys(error.keyPattern)[0]
+      });
+    }
+    
+    // Check for validation error
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.keys(error.errors).reduce((acc, key) => {
+        acc[key] = error.errors[key].message;
+        return acc;
+      }, {});
+      
+      return res.status(400).json({ 
+        error: 'Validation error', 
+        details: validationErrors
+      });
+    }
+    
     res.status(400).json({ error: error.message });
   }
 });
@@ -217,6 +310,18 @@ app.delete('/api/customers/:supabaseId', async (req, res) => {
 // Create Driver
 app.post('/api/drivers', async (req, res) => {
   try {
+    console.log('📥 Received driver creation request:', JSON.stringify(req.body));
+    
+    // Validate required fields
+    if (!req.body.supabaseId || !req.body.email || !req.body.fullName || !req.body.vehicleModel || !req.body.vehiclePlate) {
+      console.error('❌ Missing required fields for driver creation');
+      return res.status(400).json({ 
+        error: 'Missing required fields', 
+        required: ['supabaseId', 'email', 'fullName', 'vehicleModel', 'vehiclePlate'],
+        received: Object.keys(req.body)
+      });
+    }
+    
     const vehicleParts = req.body.vehicleModel.split(' ');
     const make = vehicleParts[0] || 'Unknown';
     const model = vehicleParts.slice(1).join(' ') || 'Unknown';
@@ -256,12 +361,43 @@ app.post('/api/drivers', async (req, res) => {
       }
     };
 
+    console.log('🔄 Processing driver data with supabaseId:', driverData.supabaseId);
+    
     const driver = new Driver(driverData);
     const savedDriver = await driver.save();
 
-    console.log('✅ Driver created:', savedDriver._id);
+    console.log('✅ Driver created successfully:', {
+      id: savedDriver._id,
+      supabaseId: savedDriver.supabaseId,
+      email: savedDriver.email,
+      vehiclePlate: savedDriver.vehiclePlate
+    });
+    
     res.status(201).json(savedDriver);
   } catch (error) {
+    console.error('❌ Error creating driver:', error);
+    
+    // Check for duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({ 
+        error: 'Driver already exists or duplicate information', 
+        field: Object.keys(error.keyPattern)[0]
+      });
+    }
+    
+    // Check for validation error
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.keys(error.errors).reduce((acc, key) => {
+        acc[key] = error.errors[key].message;
+        return acc;
+      }, {});
+      
+      return res.status(400).json({ 
+        error: 'Validation error', 
+        details: validationErrors
+      });
+    }
+    
     res.status(400).json({ error: error.message });
   }
 });

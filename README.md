@@ -1,10 +1,16 @@
-<<<<<<< HEAD
-"# NeoRide-Official" 
-"# NeoRide-Official" 
-=======
+
 # NeoRide Backend API for Vercel
 
 This is a serverless version of the NeoRide backend API, optimized for deployment on Vercel.
+
+## Important: MongoDB Connection in Vercel
+
+If you're experiencing issues with MongoDB connections in Vercel (data not being saved), follow these troubleshooting steps:
+
+1. **Check MongoDB Atlas Network Access**: Make sure your MongoDB Atlas cluster allows connections from anywhere (IP: 0.0.0.0/0)
+2. **Verify Environment Variables**: Ensure the MONGODB_URI environment variable is correctly set in Vercel
+3. **Test API Endpoints**: Use the `/api/health` and `/api/debug` endpoints to verify connectivity
+4. **Check Logs**: Review Vercel logs for any connection errors
 
 ## Deployment Instructions
 
@@ -91,4 +97,4 @@ If you encounter issues with MongoDB connection:
 2. Add `0.0.0.0/0` to your MongoDB Atlas IP whitelist to allow connections from anywhere
 3. Check that your connection string is correctly formatted and URL-encoded
 4. Verify that your MongoDB user has the correct permissions
->>>>>>> 6cd5319 (Initial backend setup for Vercel)
+

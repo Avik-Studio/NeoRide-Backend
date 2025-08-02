@@ -1,12 +1,4 @@
 {
-<<<<<<< HEAD
-  "rewrites": [
-    {
-      "source": "/((?!api/.*).*)",
-      "destination": "/index.html"
-    }
-  ]
-=======
   "version": 2,
   "builds": [
     {
@@ -23,9 +15,5 @@
       "src": "/(.*)",
       "dest": "index.js"
     }
-  ],
-  "env": {
-    "MONGODB_URI": "mongodb+srv://avikmodak83:Avik%402005@cluster0.vvhbnvm.mongodb.net/NeoRide?retryWrites=true&w=majority&appName=Cluster0"
-  }
->>>>>>> 6cd5319 (Initial backend setup for Vercel)
+  ]
 }
