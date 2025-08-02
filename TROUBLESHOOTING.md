@@ -54,15 +54,30 @@ If data isn't being saved to MongoDB:
    - In Vercel dashboard, go to your project → Settings → Environment Variables
    - Make sure `MONGODB_URI` is correctly set with your connection string
    - Add the variable to all environments (Production, Preview, Development)
+   - Double-check that the connection string is properly URL-encoded (especially the password)
 
 3. **Test MongoDB Connection**:
    - Use the `/api/health` endpoint to check if MongoDB is connected
    - Use the `/api/debug` endpoint to verify environment variables
+   - Try the direct connection test at `/api/mongodb-test`
 
 4. **Check for Connection Errors**:
    - In Vercel dashboard, go to your project → Deployments → Latest deployment → Functions
    - Click on a function to view logs
    - Look for any MongoDB connection errors
+
+5. **Test Direct Connection**:
+   - Run the `test-mongodb.js` script locally to test direct connection:
+   ```bash
+   node test-mongodb.js
+   ```
+   - If this works but the API doesn't, the issue is in the API code
+
+6. **Common MongoDB Connection Errors**:
+   - **"Cannot read properties of undefined (reading 'admin')"**: The MongoDB connection hasn't been established before trying to use it
+   - **"MongoServerSelectionError: connection timed out"**: Network issue or IP not whitelisted
+   - **"MongoError: Authentication failed"**: Incorrect username/password in connection string
+   - **"MongoNetworkError: failed to connect"**: Network issue or incorrect hostname
 
 ### Debugging Steps
 

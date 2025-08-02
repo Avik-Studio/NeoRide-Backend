@@ -25,37 +25,88 @@ mongoose.set('bufferCommands', false);
 
 // MongoDB Connection with improved error handling for Vercel
 let cachedDb = null;
+let connectionAttempts = 0;
+const MAX_ATTEMPTS = 3;
 
 async function connectToDatabase() {
-  if (cachedDb) {
+  // If we already have a connection and it's ready, use it
+  if (cachedDb && mongoose.connection.readyState === 1) {
     console.log('Using cached database connection');
     return cachedDb;
   }
-
-  console.log('Connecting to MongoDB...');
-  console.log('MongoDB URI:', MONGODB_URI ? 'URI is set' : 'URI is not set');
+  
+  // If we've tried too many times, throw an error
+  if (connectionAttempts >= MAX_ATTEMPTS) {
+    throw new Error(`Failed to connect to MongoDB after ${MAX_ATTEMPTS} attempts`);
+  }
+  
+  connectionAttempts++;
+  console.log(`Connecting to MongoDB... (Attempt ${connectionAttempts}/${MAX_ATTEMPTS})`);
+  
+  // Check if MongoDB URI is set
+  if (!MONGODB_URI) {
+    console.error('❌ MONGODB_URI environment variable is not set!');
+    throw new Error('MongoDB URI is not configured. Please set MONGODB_URI environment variable.');
+  }
+  
+  console.log('MongoDB URI is configured');
   
   // Set mongoose options for better reliability
   const options = {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000,
+    serverSelectionTimeoutMS: 10000, // Increased timeout
     socketTimeoutMS: 45000,
+    family: 4 // Force IPv4
   };
 
   try {
+    // Disconnect if there's an existing connection in a bad state
+    if (mongoose.connection.readyState !== 0) {
+      console.log(`Closing existing MongoDB connection (state: ${mongoose.connection.readyState})`);
+      await mongoose.disconnect();
+    }
+    
+    // Connect to MongoDB
     const client = await mongoose.connect(MONGODB_URI, options);
     cachedDb = client;
-    console.log('✅ Connected to MongoDB');
+    console.log('✅ Connected to MongoDB successfully');
+    
+    // Reset connection attempts on success
+    connectionAttempts = 0;
+    
+    // Add connection event listeners
+    mongoose.connection.on('disconnected', () => {
+      console.log('❌ MongoDB disconnected');
+      cachedDb = null;
+    });
+    
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ MongoDB connection error:', err);
+      cachedDb = null;
+    });
+    
     return client;
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);
+    cachedDb = null;
+    
+    // If we haven't reached max attempts, try again after a delay
+    if (connectionAttempts < MAX_ATTEMPTS) {
+      console.log(`Will retry connection in 2 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return connectToDatabase(); // Recursive retry
+    }
+    
     throw error;
   }
 }
 
 // Connect to MongoDB at startup
-connectToDatabase().catch(console.error);
+console.log('Initiating MongoDB connection at startup...');
+connectToDatabase()
+  .then(() => console.log('Initial MongoDB connection established'))
+  .catch(err => console.error('Failed to establish initial MongoDB connection:', err));
 
 // Mongoose error listener
 mongoose.connection.on('error', (err) => {
@@ -171,19 +222,53 @@ const Driver = mongoose.model('Driver', driverSchema);
 // Health check endpoint with detailed MongoDB connection status
 app.get('/api/health', async (req, res) => {
   try {
-    // Test database connection
-    await mongoose.connection.db.admin().ping();
-    res.status(200).json({ 
-      status: 'success',
-      message: 'API is running',
-      connected: true,
-      mongoState: mongoose.connection.readyState,
-      environment: process.env.NODE_ENV || 'development',
-      timestamp: new Date()
-    });
+    // Check if mongoose connection is established
+    if (mongoose.connection.readyState !== 1) {
+      // Connection not established yet, try to connect
+      console.log('MongoDB connection not established. Current state:', mongoose.connection.readyState);
+      console.log('Attempting to connect to MongoDB...');
+      
+      try {
+        await connectToDatabase();
+        console.log('Connection established during health check');
+      } catch (connError) {
+        console.error('Failed to connect during health check:', connError);
+        return res.status(500).json({ 
+          status: 'error',
+          message: 'Database connection failed during health check',
+          connected: false,
+          mongoState: mongoose.connection.readyState,
+          error: connError.message,
+          mongodbUri: process.env.MONGODB_URI ? 'URI is set (hidden)' : 'URI is not set',
+          timestamp: new Date()
+        });
+      }
+    }
+    
+    // Now test the connection with ping
+    if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+      await mongoose.connection.db.admin().ping();
+      return res.status(200).json({ 
+        status: 'success',
+        message: 'API is running with MongoDB connected',
+        connected: true,
+        mongoState: mongoose.connection.readyState,
+        environment: process.env.NODE_ENV || 'development',
+        timestamp: new Date()
+      });
+    } else {
+      // Connection exists but can't access db
+      return res.status(500).json({ 
+        status: 'error',
+        message: 'MongoDB connection exists but database is not accessible',
+        connected: false,
+        mongoState: mongoose.connection.readyState,
+        timestamp: new Date()
+      });
+    }
   } catch (error) {
     console.error('Health check failed:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       status: 'error',
       message: 'Database connection failed',
       connected: false,
@@ -194,13 +279,62 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Debug endpoint to check environment variables (remove in production)
-app.get('/api/debug', (req, res) => {
-  res.status(200).json({
-    nodeEnv: process.env.NODE_ENV,
-    mongodbUri: process.env.MONGODB_URI ? 'Set (value hidden)' : 'Not set',
+// Debug endpoint to check environment variables and connection status
+app.get('/api/debug', async (req, res) => {
+  // Get MongoDB connection status
+  const mongoStatus = mongoose.connection.readyState;
+  const statusMap = {
+    0: 'Disconnected',
+    1: 'Connected',
+    2: 'Connecting',
+    3: 'Disconnecting'
+  };
+  
+  // Check if we can access the database
+  let dbAccessible = false;
+  let collections = [];
+  let dbError = null;
+  
+  if (mongoStatus === 1) {
+    try {
+      // Try to list collections to verify database access
+      collections = await mongoose.connection.db.listCollections().toArray();
+      collections = collections.map(c => c.name);
+      dbAccessible = true;
+    } catch (error) {
+      dbError = error.message;
+    }
+  }
+  
+  // Get environment information
+  const envInfo = {
+    nodeEnv: process.env.NODE_ENV || 'Not set',
+    mongodbUri: process.env.MONGODB_URI ? 
+      `Set (starts with: ${process.env.MONGODB_URI.substring(0, 20)}...)` : 
+      'Not set',
     port: process.env.PORT || 3001,
-    vercel: process.env.VERCEL === '1' ? 'Running on Vercel' : 'Not on Vercel'
+    vercel: process.env.VERCEL === '1' ? 'Running on Vercel' : 'Not on Vercel',
+    now: process.env.NOW_REGION ? `Vercel Region: ${process.env.NOW_REGION}` : 'Not on Vercel',
+    version: process.version
+  };
+  
+  // Return comprehensive debug information
+  res.status(200).json({
+    api: {
+      status: 'running',
+      timestamp: new Date(),
+      uptime: `${Math.floor(process.uptime())} seconds`
+    },
+    mongodb: {
+      connectionStatus: statusMap[mongoStatus] || 'Unknown',
+      statusCode: mongoStatus,
+      accessible: dbAccessible,
+      collections: dbAccessible ? collections : [],
+      error: dbError,
+      connectionAttempts
+    },
+    environment: envInfo,
+    memory: process.memoryUsage()
   });
 });
 

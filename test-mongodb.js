@@ -1,121 +1,116 @@
-// Test MongoDB Integration
-// Run this with: node test-mongodb.js
+/**
+ * MongoDB Direct Connection Test
+ * This script tests the connection to MongoDB directly without going through the API
+ * Run this with: node test-mongodb.js
+ */
 
-const API_BASE_URL = 'http://localhost:3001/api';
+require('dotenv').config();
+const mongoose = require('mongoose');
 
+// Get MongoDB URI from environment or use default
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://avikmodak83:Avik%402005@cluster0.vvhbnvm.mongodb.net/NeoRide?retryWrites=true&w=majority&appName=Cluster0';
+
+console.log('🔍 Testing Direct MongoDB Connection\n');
+console.log(`MongoDB URI: ${MONGODB_URI.substring(0, 20)}...`);
+
+// Connection options
+const options = {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  family: 4 // Force IPv4
+};
+
+// Connect to MongoDB
+console.log('Attempting to connect to MongoDB...');
+
+mongoose.connect(MONGODB_URI, options)
+  .then(async () => {
+    console.log('✅ Successfully connected to MongoDB!');
+    
+    // Get connection status
+    console.log(`Connection state: ${mongoose.connection.readyState}`);
+    
+    // Test database operations
+    console.log('\nTesting database operations...');
+    
+    try {
+      // Check if we can ping the database
+      await mongoose.connection.db.admin().ping();
+      console.log('✅ Database ping successful');
+      
+      // List collections
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      console.log(`✅ Found ${collections.length} collections:`);
+      collections.forEach(collection => {
+        console.log(`   - ${collection.name}`);
+      });
+      
+      // Create a test schema and model
+      const testSchema = new mongoose.Schema({
+        name: String,
+        createdAt: { type: Date, default: Date.now }
+      });
+      
+      const TestModel = mongoose.model('ConnectionTest', testSchema);
+      
+      // Create a test document
+      const testDoc = new TestModel({ name: 'Connection Test' });
+      await testDoc.save();
+      console.log('✅ Successfully created test document');
+      
+      // Find the test document
+      const foundDoc = await TestModel.findOne({ name: 'Connection Test' });
+      console.log(`✅ Successfully retrieved test document: ${foundDoc.name}`);
+      
+      // Delete the test document
+      await TestModel.deleteOne({ _id: foundDoc._id });
+      console.log('✅ Successfully deleted test document');
+      
+      console.log('\n🎉 All MongoDB operations successful!');
+    } catch (error) {
+      console.error('❌ Error during database operations:', error);
+    }
+    
+    // Close the connection
+    await mongoose.connection.close();
+    console.log('\nConnection closed');
+  })
+  .catch(error => {
+    console.error('❌ Failed to connect to MongoDB:', error);
+    
+    // Provide troubleshooting tips
+    console.log('\n🔧 Troubleshooting tips:');
+    console.log('1. Check if your MongoDB Atlas cluster is running');
+    console.log('2. Verify that your IP address is whitelisted in MongoDB Atlas');
+    console.log('3. Ensure your connection string is correct');
+    console.log('4. Check if your MongoDB user has the correct permissions');
+    console.log('5. Try adding 0.0.0.0/0 to your IP whitelist in MongoDB Atlas');
+  })
+  .finally(() => {
+    console.log('\nTest completed');
+  });
+
+// Also create a function to test the API (can be run separately)
 async function testAPI() {
-  console.log('🧪 Testing NeoRide MongoDB Integration...\n');
-
+  console.log('\n\n🧪 Testing NeoRide API Integration...\n');
+  
+  const API_BASE_URL = 'http://localhost:3001/api';
+  
   try {
-    // Test 1: Health Check
-    console.log('1️⃣ Testing API Health Check...');
+    // Test Health Check
+    console.log('Testing API Health Check...');
     const healthResponse = await fetch(`${API_BASE_URL}/health`);
     const healthData = await healthResponse.json();
     console.log('✅ Health Check:', healthData.message);
     console.log('   Connected:', healthData.connected);
     console.log('   Timestamp:', healthData.timestamp);
-
-    // Test 2: Create Test Customer
-    console.log('\n2️⃣ Testing Customer Creation...');
-    const testCustomer = {
-      supabaseId: 'test-customer-' + Date.now(),
-      email: `testcustomer${Date.now()}@example.com`,
-      fullName: 'Test Customer',
-      phone: '+1234567890'
-    };
-
-    const customerResponse = await fetch(`${API_BASE_URL}/customers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(testCustomer)
-    });
-
-    if (customerResponse.ok) {
-      const customerData = await customerResponse.json();
-      console.log('✅ Customer Created:', customerData._id);
-      console.log('   Name:', customerData.fullName);
-      console.log('   Email:', customerData.email);
-      console.log('   Phone:', customerData.phone);
-
-      // Test customer retrieval
-      console.log('\n   📋 Testing Customer Retrieval...');
-      const getCustomerResponse = await fetch(`${API_BASE_URL}/customers/${testCustomer.supabaseId}`);
-      if (getCustomerResponse.ok) {
-        const retrievedCustomer = await getCustomerResponse.json();
-        console.log('   ✅ Customer Retrieved:', retrievedCustomer.fullName);
-      }
-    } else {
-      console.log('❌ Customer creation failed:', await customerResponse.text());
-    }
-
-    // Test 3: Create Test Driver
-    console.log('\n3️⃣ Testing Driver Creation...');
-    const testDriver = {
-      supabaseId: 'test-driver-' + Date.now(),
-      email: `testdriver${Date.now()}@example.com`,
-      fullName: 'Test Driver',
-      phone: '+1234567891',
-      licenseNumber: 'TEST' + Date.now(),
-      vehicleModel: 'Toyota Camry',
-      vehiclePlate: 'TEST' + Date.now().toString().slice(-3)
-    };
-
-    const driverResponse = await fetch(`${API_BASE_URL}/drivers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(testDriver)
-    });
-
-    if (driverResponse.ok) {
-      const driverData = await driverResponse.json();
-      console.log('✅ Driver Created:', driverData._id);
-      console.log('   Name:', driverData.fullName);
-      console.log('   Email:', driverData.email);
-      console.log('   License:', driverData.licenseNumber);
-      console.log('   Vehicle:', driverData.vehicleModel);
-      console.log('   Plate:', driverData.vehiclePlate);
-      console.log('   Status:', driverData.status);
-
-      // Test driver retrieval
-      console.log('\n   📋 Testing Driver Retrieval...');
-      const getDriverResponse = await fetch(`${API_BASE_URL}/drivers/${testDriver.supabaseId}`);
-      if (getDriverResponse.ok) {
-        const retrievedDriver = await getDriverResponse.json();
-        console.log('   ✅ Driver Retrieved:', retrievedDriver.fullName);
-      }
-    } else {
-      console.log('❌ Driver creation failed:', await driverResponse.text());
-    }
-
-    // Test 4: Get Database Stats
-    console.log('\n4️⃣ Testing Database Stats...');
-    const statsResponse = await fetch(`${API_BASE_URL}/stats`);
-    if (statsResponse.ok) {
-      const stats = await statsResponse.json();
-      console.log('✅ Database Stats Retrieved:');
-      console.log('   Total Customers:', stats.totalCustomers);
-      console.log('   Total Drivers:', stats.totalDrivers);
-      console.log('   Approved Drivers:', stats.approvedDrivers);
-      console.log('   Pending Drivers:', stats.pendingDrivers);
-    }
-
-    console.log('\n🎉 MongoDB Integration Tests Completed Successfully!');
-    console.log('\n📝 Summary:');
-    console.log('   ✅ Backend API is running on port 3001');
-    console.log('   ✅ MongoDB connection is working');
-    console.log('   ✅ Customer creation and retrieval working');
-    console.log('   ✅ Driver creation and retrieval working');
-    console.log('   ✅ Database statistics working');
-    console.log('\n🚀 Your NeoRide MongoDB integration is ready for use!');
-
   } catch (error) {
-    console.error('❌ Test failed:', error.message);
-    console.log('\n🔧 Troubleshooting:');
-    console.log('   1. Make sure the backend server is running: npm start (in backend folder)');
-    console.log('   2. Check MongoDB connection string in backend/.env');
-    console.log('   3. Verify port 3001 is not blocked');
+    console.error('❌ API test failed:', error.message);
+    console.log('   Make sure the backend server is running: npm start');
   }
 }
 
-// Run the test
-testAPI();
+// Uncomment to also test the API
+// setTimeout(testAPI, 1000);
