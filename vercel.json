@@ -9,11 +9,14 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "index.js"
+      "dest": "/index.js"
     },
     {
       "src": "/(.*)",
-      "dest": "index.js"
+      "dest": "/index.js"
     }
-  ]
+  ],
+  "env": {
+    "MONGODB_URI": "mongodb+srv://avikmodak83:Avik%402005@cluster0.vvhbnvm.mongodb.net/NeoRide?retryWrites=true&w=majority&appName=Cluster0"
+  }
 }

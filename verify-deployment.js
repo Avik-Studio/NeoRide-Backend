@@ -1,202 +1,150 @@
-#!/usr/bin/env node
-
 /**
- * Deployment Verification Script for NeoRide
- * This script checks if all requirements are met for successful Vercel deployment
+ * NeoRide Backend API Deployment Verification Script
+ * This script checks if your Vercel-deployed API is working correctly
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+const https = require('https');
+const fs = require('fs');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Configuration - Replace with your actual Vercel deployment URL
+let VERCEL_URL = 'https://your-vercel-deployment-url.vercel.app';
 
-console.log('🔍 NeoRide Deployment Verification\n');
+// Try to read the URL from a config file if it exists
+try {
+  if (fs.existsSync('./deployment-config.json')) {
+    const config = JSON.parse(fs.readFileSync('./deployment-config.json', 'utf8'));
+    if (config.vercelUrl) {
+      VERCEL_URL = config.vercelUrl;
+    }
+  }
+} catch (error) {
+  console.error('Error reading config file:', error.message);
+}
 
-let allChecksPass = true;
-
-// Check 1: Required files
-console.log('📁 Checking required files...');
-const requiredFiles = [
-  'package.json',
-  'vite.config.ts',
-  'vercel.json',
-  'src/App.tsx',
-  'src/main.tsx',
-  'index.html'
+const ENDPOINTS = [
+  '/',
+  '/api/health',
+  '/api/debug',
+  '/api/stats'
 ];
 
-requiredFiles.forEach(file => {
-  if (fs.existsSync(file)) {
-    console.log(`✅ ${file}`);
-  } else {
-    console.log(`❌ ${file} - MISSING`);
-    allChecksPass = false;
-  }
-});
+console.log('🧪 Verifying NeoRide Backend API Deployment...');
+console.log(`🔗 Testing endpoints on ${VERCEL_URL}`);
+console.log('-----------------------------------');
 
-// Check 2: Package.json configuration
-console.log('\n📋 Checking package.json...');
-if (fs.existsSync('package.json')) {
-  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  
-  if (packageJson.scripts && packageJson.scripts.build) {
-    console.log(`✅ Build script: ${packageJson.scripts.build}`);
-  } else {
-    console.log('❌ Build script missing');
-    allChecksPass = false;
-  }
-  
-  if (packageJson.dependencies) {
-    const criticalDeps = ['react', 'react-dom', '@supabase/supabase-js', 'vite'];
-    criticalDeps.forEach(dep => {
-      if (packageJson.dependencies[dep] || (packageJson.devDependencies && packageJson.devDependencies[dep])) {
-        console.log(`✅ ${dep} dependency found`);
-      } else {
-        console.log(`❌ ${dep} dependency missing`);
-        allChecksPass = false;
-      }
+// Function to make a GET request to an endpoint
+function testEndpoint(endpoint) {
+  return new Promise((resolve, reject) => {
+    const url = `${VERCEL_URL}${endpoint}`;
+    
+    const req = https.get(url, (res) => {
+      let data = '';
+      
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      res.on('end', () => {
+        try {
+          const jsonData = JSON.parse(data);
+          resolve({
+            endpoint,
+            status: res.statusCode,
+            data: jsonData
+          });
+        } catch (error) {
+          resolve({
+            endpoint,
+            status: res.statusCode,
+            error: 'Invalid JSON response',
+            data: data
+          });
+        }
+      });
     });
-  }
-}
-
-// Check 3: Vercel configuration
-console.log('\n🚀 Checking Vercel configuration...');
-if (fs.existsSync('vercel.json')) {
-  try {
-    const vercelConfig = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
     
-    if (vercelConfig.builds) {
-      console.log('✅ Build configuration found');
-    } else {
-      console.log('❌ Build configuration missing');
-      allChecksPass = false;
-    }
+    req.on('error', (error) => {
+      resolve({
+        endpoint,
+        status: 'ERROR',
+        error: error.message
+      });
+    });
     
-    if (vercelConfig.routes) {
-      console.log('✅ Route configuration found');
-    } else {
-      console.log('❌ Route configuration missing');
-      allChecksPass = false;
-    }
-  } catch (e) {
-    console.log('❌ vercel.json - Invalid JSON');
-    allChecksPass = false;
-  }
-} else {
-  console.log('❌ vercel.json missing');
-  allChecksPass = false;
-}
-
-// Check 4: Environment variables template
-console.log('\n🔧 Checking environment variables...');
-if (fs.existsSync('.env')) {
-  const envContent = fs.readFileSync('.env', 'utf8');
-  const requiredEnvVars = [
-    'VITE_GOOGLE_MAPS_API_KEY',
-    'VITE_SUPABASE_URL',
-    'VITE_SUPABASE_ANON_KEY'
-  ];
-  
-  requiredEnvVars.forEach(envVar => {
-    if (envContent.includes(envVar)) {
-      console.log(`✅ ${envVar} found in .env`);
-    } else {
-      console.log(`❌ ${envVar} missing from .env`);
-      allChecksPass = false;
-    }
+    req.on('timeout', () => {
+      req.abort();
+      resolve({
+        endpoint,
+        status: 'TIMEOUT',
+        error: 'Request timed out'
+      });
+    });
+    
+    req.setTimeout(10000);
+    req.end();
   });
-} else {
-  console.log('⚠️  .env file not found (this is OK if using Vercel environment variables)');
 }
 
-// Check 5: TypeScript configuration
-console.log('\n📝 Checking TypeScript configuration...');
-if (fs.existsSync('tsconfig.json')) {
-  console.log('✅ tsconfig.json found');
-} else {
-  console.log('❌ tsconfig.json missing');
-  allChecksPass = false;
-}
-
-// Check 6: Critical source files
-console.log('\n📦 Checking critical source files...');
-const criticalFiles = [
-  'src/App.tsx',
-  'src/main.tsx',
-  'src/lib/supabase.ts',
-  'src/components/Pages/PackagesPage.tsx'
-];
-
-criticalFiles.forEach(file => {
-  if (fs.existsSync(file)) {
-    console.log(`✅ ${file}`);
-  } else {
-    console.log(`❌ ${file} - MISSING`);
-    allChecksPass = false;
-  }
-});
-
-// Check 7: Import statements
-console.log('\n🔗 Checking for problematic imports...');
-if (fs.existsSync('src/App.tsx')) {
-  const appContent = fs.readFileSync('src/App.tsx', 'utf8');
+// Test all endpoints
+async function runTests() {
+  const results = [];
   
-  // Check for PackagesPage import
-  if (appContent.includes('PackagesPage')) {
-    if (fs.existsSync('src/components/Pages/PackagesPage.tsx')) {
-      console.log('✅ PackagesPage import and file match');
-    } else {
-      console.log('❌ PackagesPage imported but file missing');
-      allChecksPass = false;
-    }
-  }
-  
-  // Check for other potential issues
-  const lines = appContent.split('\n');
-  lines.forEach((line, index) => {
-    if (line.includes('import') && line.includes('./') && !line.includes('//')) {
-      const match = line.match(/from\s+['"](.*?)['"]/);
-      if (match) {
-        const importPath = match[1];
-        if (importPath.startsWith('./') || importPath.startsWith('../')) {
-          // This is a simplified check
-          console.log(`ℹ️  Relative import found: ${importPath} (line ${index + 1})`);
+  for (const endpoint of ENDPOINTS) {
+    console.log(`🔍 Testing endpoint: ${endpoint}`);
+    const result = await testEndpoint(endpoint);
+    results.push(result);
+    
+    if (result.status === 200) {
+      console.log(`✅ ${endpoint} - Status: ${result.status}`);
+      
+      // For health check, verify MongoDB connection
+      if (endpoint === '/api/health' && result.data) {
+        const connected = result.data.connected;
+        if (connected) {
+          console.log('   💾 MongoDB connection: ✅ Connected');
+        } else {
+          console.log('   💾 MongoDB connection: ❌ Not connected');
+          console.log(`   Error: ${result.data.error || 'Unknown error'}`);
         }
       }
+      
+    } else {
+      console.log(`❌ ${endpoint} - Status: ${result.status} - Error: ${result.error || 'Unknown error'}`);
     }
-  });
+    console.log('-----------------------------------');
+  }
+  
+  // Summary
+  console.log('\n📊 Test Summary:');
+  const successful = results.filter(r => r.status === 200).length;
+  console.log(`✅ Successful: ${successful}/${ENDPOINTS.length}`);
+  console.log(`❌ Failed: ${ENDPOINTS.length - successful}/${ENDPOINTS.length}`);
+  
+  if (successful === ENDPOINTS.length) {
+    console.log('\n🎉 All tests passed! Your API deployment is working correctly.');
+    
+    // Check MongoDB connection specifically
+    const healthResult = results.find(r => r.endpoint === '/api/health');
+    if (healthResult && healthResult.data && healthResult.data.connected) {
+      console.log('💾 MongoDB connection is working properly.');
+    } else {
+      console.log('⚠️ MongoDB connection may have issues. Check the health endpoint for details.');
+    }
+    
+  } else {
+    console.log('\n⚠️ Some tests failed. Please check the errors above.');
+  }
+  
+  // Environment variables reminder
+  console.log('\n' + '='.repeat(50));
+  console.log('🔧 CRITICAL: Make sure these are set in Vercel Dashboard:');
+  console.log('');
+  console.log('MONGODB_URI = mongodb+srv://avikmodak83:Avik%402005@cluster0.vvhbnvm.mongodb.net/NeoRide?retryWrites=true&w=majority&appName=Cluster0');
+  console.log('NODE_ENV = production');
+  console.log('');
+  console.log('⚠️  Add these to ALL environments: Production, Preview, Development');
+  console.log('='.repeat(50));
 }
 
-// Final summary
-console.log('\n' + '='.repeat(50));
-if (allChecksPass) {
-  console.log('🎉 ALL CHECKS PASSED!');
-  console.log('\n✅ Your project is ready for Vercel deployment');
-  console.log('\n📋 Next steps:');
-  console.log('1. Set environment variables in Vercel Dashboard');
-  console.log('2. Push changes to GitHub');
-  console.log('3. Monitor deployment in Vercel Dashboard');
-} else {
-  console.log('❌ SOME CHECKS FAILED!');
-  console.log('\n🔧 Please fix the issues marked with ❌ above');
-  console.log('\n📋 Common fixes:');
-  console.log('1. Install missing dependencies: npm install');
-  console.log('2. Create missing files');
-  console.log('3. Fix configuration files');
-  console.log('4. Set environment variables');
-}
-
-console.log('\n🚀 For detailed troubleshooting, see DEPLOYMENT_TROUBLESHOOTING.md');
-
-// Environment variables reminder
-console.log('\n' + '='.repeat(50));
-console.log('🔧 CRITICAL: Set these in Vercel Dashboard:');
-console.log('');
-console.log('VITE_GOOGLE_MAPS_API_KEY = AIzaSyBijSpKeKls2NnnAV-S9BRIay897AIBGyg');
-console.log('VITE_SUPABASE_URL = https://dkvuzzenlogcmcithurs.supabase.co');
-console.log('VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrdnV6emVubG9nY21jaXRodXJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1OTc2OTAsImV4cCI6MjA2OTE3MzY5MH0.pa_puSJdI6yUWmYvlMhzMRpXhoHacHde5u78gEoWJHo');
-console.log('');
-console.log('⚠️  Add these to ALL environments: Production, Preview, Development');
-console.log('='.repeat(50));
+// Run the tests
+runTests();

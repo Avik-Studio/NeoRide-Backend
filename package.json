@@ -8,7 +8,9 @@
   },
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "node test-api.js",
+    "vercel-build": "echo 'Build step completed'"
   },
   "dependencies": {
     "express": "^4.18.2",

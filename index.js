@@ -459,18 +459,63 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// 404 Fallback
+// Root route for API verification
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    message: 'NeoRide Backend API is running',
+    endpoints: {
+      health: '/api/health',
+      debug: '/api/debug',
+      customers: '/api/customers',
+      drivers: '/api/drivers',
+      stats: '/api/stats'
+    },
+    timestamp: new Date()
+  });
+});
+
+// 404 Fallback with more detailed error
 app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  console.log('❌ Route not found:', req.originalUrl);
+  res.status(404).json({ 
+    error: 'Route not found',
+    requestedPath: req.originalUrl,
+    availableRoutes: [
+      '/api/health',
+      '/api/debug',
+      '/api/customers',
+      '/api/drivers',
+      '/api/stats'
+    ],
+    timestamp: new Date()
+  });
 });
 
 // Start server
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 NeoRide Backend API running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+const server = app.listen(PORT, () => {
+  console.log(`🚀 NeoRide Backend API running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🔍 Debug info: http://localhost:${PORT}/api/debug`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Log MongoDB connection status
+  const mongoStatus = mongoose.connection.readyState;
+  const statusMap = {
+    0: '❌ Disconnected',
+    1: '✅ Connected',
+    2: '🔄 Connecting',
+    3: '🔄 Disconnecting'
+  };
+  console.log(`💾 MongoDB Status: ${statusMap[mongoStatus] || 'Unknown'}`);
+});
+
+// Handle server shutdown gracefully
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
   });
-}
+});
 
 // For Vercel serverless deployment
 module.exports = app;

@@ -1,0 +1,4 @@
+{
+  "vercelUrl": "https://your-vercel-deployment-url.vercel.app",
+  "mongodbUri": "mongodb+srv://avikmodak83:Avik%402005@cluster0.vvhbnvm.mongodb.net/NeoRide?retryWrites=true&w=majority&appName=Cluster0"
+}
