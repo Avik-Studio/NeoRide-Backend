@@ -20,8 +20,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // ========== MongoDB Setup ==========
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/NeoRide';
 
-// (Optional but recommended) Disable command buffering to catch issues early
-mongoose.set('bufferCommands', false);
+// Enable command buffering for better reliability in serverless environments
+mongoose.set('bufferCommands', true);
 
 // MongoDB Connection with improved error handling for Vercel
 let cachedDb = null;
@@ -343,6 +343,12 @@ app.post('/api/customers', async (req, res) => {
   try {
     console.log('📥 Received customer creation request:', JSON.stringify(req.body));
     
+    // Ensure database connection before proceeding
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected, attempting to connect...');
+      await connectToDatabase();
+    }
+    
     // Validate required fields
     if (!req.body.supabaseId || !req.body.email || !req.body.fullName) {
       console.error('❌ Missing required fields for customer creation');
@@ -445,6 +451,12 @@ app.delete('/api/customers/:supabaseId', async (req, res) => {
 app.post('/api/drivers', async (req, res) => {
   try {
     console.log('📥 Received driver creation request:', JSON.stringify(req.body));
+    
+    // Ensure database connection before proceeding
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected, attempting to connect...');
+      await connectToDatabase();
+    }
     
     // Validate required fields
     if (!req.body.supabaseId || !req.body.email || !req.body.fullName || !req.body.vehicleModel || !req.body.vehiclePlate) {
